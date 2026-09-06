@@ -3,4 +3,8 @@ ccxt
 pandas
 numpy
 requests
-supabase
+sqlite3
+plotly
+python-dotenv
+pillow
+google-genai
