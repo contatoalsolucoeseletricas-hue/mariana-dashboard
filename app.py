@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 
 """
-MARIANA BOT - DASHBOARD (SUPABASE + HUGGING FACE - FINAL)
+MARIANA BOT - DASHBOARD (SUPABASE + HUGGING FACE - FALLBACK)
 - ✅ Login com senha própria
 - ✅ Registros salvos no Supabase (nunca somem)
 - ✅ Admin pode apagar registros
-- ✅ Chat interativo com Hugging Face (router.huggingface.co)
+- ✅ Chat com 7 modelos de IA (fallback automático)
 - ✅ Análise completa com indicadores
 """
 
@@ -123,28 +123,48 @@ def carregar_historico():
     except:
         return pd.DataFrame()
 
-# ===== HUGGING FACE (FINAL - CORRIGIDO) =====
+# ===== HUGGING FACE (COM FALLBACK DE 7 MODELOS) =====
 HF_TOKEN = os.getenv('HF_TOKEN', '')
 
+# Lista de modelos (em ordem de preferência)
+MODELOS = [
+    "Qwen/Qwen2.5-7B-Instruct",
+    "meta-llama/Llama-3.3-70B-Instruct",
+    "mistralai/Mistral-7B-Instruct-v0.2",
+    "google/gemma-2-9b-it",
+    "HuggingFaceH4/zephyr-7b-beta",
+    "Qwen/Qwen2.5-Coder-7B-Instruct",
+    "Qwen/Qwen2.5-72B-Instruct"
+]
+
 def responder_hugging(prompt):
-    try:
-        headers = {
-            "Authorization": f"Bearer {HF_TOKEN}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "model": "Qwen/Qwen2.5-7B-Instruct",
-            "messages": [
-                {"role": "system", "content": "Você é um assistente de trading especializado em criptomoedas. Responda de forma clara e útil."},
-                {"role": "user", "content": prompt}
-            ],
-            "max_tokens": 300
-        }
-        req = requests.post("https://router.huggingface.co/v1/chat/completions", headers=headers, json=payload, timeout=30)
-        resultado = req.json()
-        return resultado['choices'][0]['message']['content']
-    except Exception as e:
-        return f"❌ Erro na IA: {e}"
+    # Tenta cada modelo até um funcionar
+    for modelo in MODELOS:
+        try:
+            headers = {
+                "Authorization": f"Bearer {HF_TOKEN}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": modelo,
+                "messages": [
+                    {"role": "system", "content": "Você é um assistente de trading especializado em criptomoedas. Responda de forma clara e útil."},
+                    {"role": "user", "content": prompt}
+                ],
+                "max_tokens": 300
+            }
+            req = requests.post("https://router.huggingface.co/v1/chat/completions", headers=headers, json=payload, timeout=30)
+            resultado = req.json()
+            
+            # Se funcionou, retorna a resposta
+            if 'choices' in resultado and resultado['choices']:
+                return resultado['choices'][0]['message']['content']
+            
+        except:
+            continue  # Se falhou, tenta o próximo modelo
+    
+    # Se todos falharam
+    return "❌ Nenhum modelo disponível. Verifique o token ou as permissões."
 
 # ===== EXCHANGE =====
 def get_exchange():
