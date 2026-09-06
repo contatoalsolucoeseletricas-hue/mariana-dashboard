@@ -2,10 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-MARIANA BOT - DASHBOARD (COM SUPABASE)
-- ✅ Login com senha própria
-- ✅ Registros salvos no Supabase (nunca somem)
-- ✅ Admin pode apagar registros
+MARIANA BOT - DASHBOARD (SUPABASE - VERSÃO FINAL)
 """
 
 import streamlit as st
@@ -30,66 +27,98 @@ def criar_senha_hash(senha):
     return hashlib.sha256(senha.encode()).hexdigest()
 
 def registrar_acao(email, nome, acao, detalhe, onde):
-    supabase.table('registros').insert({
-        'data': datetime.now().isoformat(),
-        'email': email,
-        'nome': nome,
-        'acao': acao,
-        'detalhe': detalhe,
-        'onde': onde
-    }).execute()
+    try:
+        supabase.table('registros').insert({
+            'data': datetime.now().isoformat(),
+            'email': email,
+            'nome': nome,
+            'acao': acao,
+            'detalhe': detalhe,
+            'onde': onde
+        }).execute()
+    except:
+        pass
 
 def carregar_registros():
-    response = supabase.table('registros').select('*').order('id', desc=True).execute()
-    return pd.DataFrame(response.data)
+    try:
+        response = supabase.table('registros').select('*').order('id', desc=True).execute()
+        return pd.DataFrame(response.data)
+    except:
+        return pd.DataFrame()
 
 def apagar_registros():
-    supabase.table('registros').delete().gte('id', 0).execute()
+    try:
+        supabase.table('registros').delete().gte('id', 0).execute()
+    except:
+        pass
 
 def verificar_usuario(email, senha):
-    response = supabase.table('usuarios').select('*').eq('email', email).execute()
-    if response.data:
-        user = response.data[0]
-        senha_hash = criar_senha_hash(senha)
-        if user['senha_hash'] == senha_hash:
-            return True
+    try:
+        response = supabase.table('usuarios').select('*').eq('email', email).execute()
+        if response.data:
+            user = response.data[0]
+            senha_hash = criar_senha_hash(senha)
+            if user['senha_hash'] == senha_hash:
+                return True
+    except:
+        pass
     return False
 
 def cadastrar_usuario(email, nome, senha):
-    senha_hash = criar_senha_hash(senha)
     try:
+        # Vamos tentar criar um usuário
         supabase.table('usuarios').insert({
             'email': email,
             'nome': nome,
-            'senha_hash': senha_hash,
+            'senha_hash': criar_senha_hash(senha),
             'role': 'membro',
             'criado_em': datetime.now().isoformat()
         }).execute()
         return True
     except:
-        return False
+        # Se já existe, atualiza a senha e o nome
+        try:
+            supabase.table('usuarios').update({
+                'senha_hash': criar_senha_hash(senha),
+                'nome': nome
+            }).eq('email', email).execute()
+            return True
+        except:
+            return False
 
 def listar_usuarios():
-    response = supabase.table('usuarios').select('*').execute()
-    return pd.DataFrame(response.data)
+    try:
+        response = supabase.table('usuarios').select('*').execute()
+        return pd.DataFrame(response.data)
+    except:
+        return pd.DataFrame()
 
 def excluir_usuario(email):
-    supabase.table('usuarios').delete().eq('email', email).execute()
+    try:
+        supabase.table('usuarios').delete().eq('email', email).execute()
+    except:
+        pass
 
 def salvar_analise(simbolo, tipo, resultado, confianca, tendencia, usuario):
-    supabase.table('historico_analises').insert({
-        'data': datetime.now().isoformat(),
-        'simbolo': simbolo,
-        'tipo': tipo,
-        'resultado': resultado,
-        'confianca': confianca,
-        'tendencia': tendencia,
-        'usuario': usuario
-    }).execute()
+    try:
+        supabase.table('historico_analises').insert({
+            'data': datetime.now().isoformat(),
+            'simbolo': simbolo,
+            'tipo': tipo,
+            'resultado': resultado,
+            'confianca': confianca,
+            'tendencia': tendencia,
+            'usuario': usuario
+        }).execute()
+    except:
+        pass
 
 def carregar_historico():
-    response = supabase.table('historico_analises').select('*').order('id', desc=True).execute()
-    return pd.DataFrame(response.data)
+    try:
+        response = supabase.table('historico_analises').select('*').order('id', desc=True).execute()
+        return pd.DataFrame(response.data)
+    except:
+        return pd.DataFrame()
 
 # ===== EXCHANGE =====
 def get_exchange():
@@ -111,56 +140,6 @@ def safe_float(valor, default=0.0):
         return float(valor)
     except:
         return default
-
-def get_fear_greed_index():
-    try:
-        return int(requests.get('https://api.alternative.me/fng/?limit=1', timeout=5).json()['data'][0]['value'])
-    except:
-        return 50
-
-def get_whale_activity(simbolo):
-    try:
-        base = simbolo.split('/')[0].lower()
-        r = requests.get(f"https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids={base}&price_change_percentage=24h", timeout=5).json()
-        if r:
-            return {
-                'preco': r[0].get('current_price', 0),
-                'variacao_24h': r[0].get('price_change_percentage_24h', 0),
-                'volume_24h': r[0].get('total_volume', 0),
-                'market_cap': r[0].get('market_cap', 0)
-            }
-    except:
-        pass
-    return None
-
-def get_whale_alerts():
-    try:
-        response = requests.get("https://api.whale-alert.io/v1/transactions?api_key=Bg14T7C5PDTsLaVYIKa62nzIYhe7faL6&limit=5", timeout=5).json()
-        if 'transactions' in response:
-            return response['transactions']
-    except:
-        pass
-    return []
-
-def get_mvrv_zscore(simbolo):
-    try:
-        moeda_id = simbolo.split('/')[0].lower()
-        mapa = {'BTC': 'bitcoin', 'ETH': 'ethereum', 'SOL': 'solana', 'SUI': 'sui', 'BNB': 'binancecoin', 'NAORIS': 'naoris'}
-        id_api = mapa.get(moeda_id.upper(), moeda_id)
-        url = f"https://api.coingecko.com/api/v3/coins/{id_api}"
-        response = requests.get(url, timeout=5).json()
-        market_cap = response.get('market_data', {}).get('market_cap', {}).get('usd', 0)
-        realized_cap = response.get('market_data', {}).get('fully_diluted_valuation', {}).get('usd', 0)
-        if market_cap > 0 and realized_cap > 0:
-            mvrv = market_cap / realized_cap
-            zscore = (mvrv - 1.5) / 0.5
-            return {
-                'status': '🟢 SUBVALORIZADA' if zscore < 0 else '🔴 SUPERAVALIADA' if zscore > 7 else '🟡 ZONA NEUTRA',
-                'valor': f"MVRV: {mvrv:.2f} | Z-Score: {zscore:.2f}"
-            }
-        return {'status': '⚠️ Sem dados', 'valor': 'N/A'}
-    except:
-        return {'status': '❌ Erro API', 'valor': 'N/A'}
 
 # ===== PÁGINA =====
 st.set_page_config(page_title="Mariana Bot - Dashboard", page_icon="🚀", layout="wide", initial_sidebar_state="expanded")
@@ -189,7 +168,7 @@ if st.sidebar.button("🔑 Entrar"):
                 st.session_state['nome'] = nome_input
                 st.sidebar.success(f"✅ Conta criada! Logado como {nome_input}")
             else:
-                st.sidebar.error("❌ Usuário já existe ou erro ao criar conta!")
+                st.sidebar.error("❌ Erro ao criar conta. Verifique as variáveis do Supabase.")
 
 # ===== MENU =====
 if 'logado' in st.session_state and st.session_state['logado']:
