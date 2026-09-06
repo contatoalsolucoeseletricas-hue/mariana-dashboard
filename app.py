@@ -2,14 +2,13 @@
 # -*- coding: utf-8 -*-
 
 """
-MARIANA BOT - DASHBOARD (SISTEMA AVANÇADO DE REGISTROS)
-- ✅ Cadastro com senha própria
+MARIANA BOT - DASHBOARD (COM SUPABASE)
+- ✅ Login com senha própria
+- ✅ Registros salvos no Supabase (nunca somem)
 - ✅ Admin pode apagar registros
-- ✅ Rastreamento de onde a pessoa clicou
 """
 
 import streamlit as st
-import sqlite3
 import pandas as pd
 import ccxt
 import numpy as np
@@ -17,144 +16,80 @@ import requests
 from datetime import datetime
 import os
 import hashlib
-import secrets
+from supabase import create_client
 
-# ===== BANCO DE DADOS =====
-DB_PATH = os.path.join(os.path.dirname(__file__), "mariana_historico.db")
+# ===== SUPABASE =====
+SUPABASE_URL = os.getenv('SUPABASE_URL', '')
+SUPABASE_KEY = os.getenv('SUPABASE_KEY', '')
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Senha do ADMIN (você só!)
+# ===== SENHA DO ADMIN =====
 ADMIN_SENHA = "admin123"
-
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS usuarios (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE,
-            nome TEXT,
-            senha_hash TEXT,
-            role TEXT DEFAULT 'membro',
-            criado_em TEXT
-        )
-    ''')
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS registros (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            data TEXT,
-            email TEXT,
-            nome TEXT,
-            acao TEXT,
-            detalhe TEXT,
-            onde TEXT
-        )
-    ''')
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS posicoes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            simbolo TEXT,
-            lado TEXT,
-            entrada REAL,
-            atual REAL,
-            pnl REAL,
-            pnl_percent REAL,
-            leverage REAL,
-            data_abertura TEXT,
-            usuario TEXT
-        )
-    ''')
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS historico_analises (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            data TEXT,
-            simbolo TEXT,
-            tipo TEXT,
-            resultado TEXT,
-            confianca INTEGER,
-            tendencia TEXT,
-            usuario TEXT
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
 
 def criar_senha_hash(senha):
     return hashlib.sha256(senha.encode()).hexdigest()
 
 def registrar_acao(email, nome, acao, detalhe, onde):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO registros (data, email, nome, acao, detalhe, onde)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (datetime.now().isoformat(), email, nome, acao, detalhe, onde))
-    conn.commit()
-    conn.close()
+    supabase.table('registros').insert({
+        'data': datetime.now().isoformat(),
+        'email': email,
+        'nome': nome,
+        'acao': acao,
+        'detalhe': detalhe,
+        'onde': onde
+    }).execute()
 
 def carregar_registros():
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("SELECT * FROM registros ORDER BY id DESC", conn)
-    conn.close()
-    return df
+    response = supabase.table('registros').select('*').order('id', desc=True).execute()
+    return pd.DataFrame(response.data)
 
 def apagar_registros():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM registros")
-    conn.commit()
-    conn.close()
+    supabase.table('registros').delete().gte('id', 0).execute()
 
 def verificar_usuario(email, senha):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM usuarios WHERE email = ?", (email,))
-    user = cursor.fetchone()
-    conn.close()
-    if user:
+    response = supabase.table('usuarios').select('*').eq('email', email).execute()
+    if response.data:
+        user = response.data[0]
         senha_hash = criar_senha_hash(senha)
-        if user[3] == senha_hash:
+        if user['senha_hash'] == senha_hash:
             return True
     return False
 
 def cadastrar_usuario(email, nome, senha):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    senha_hash = criar_senha_hash(senha)
     try:
-        cursor.execute('''
-            INSERT INTO usuarios (email, nome, senha_hash, role, criado_em)
-            VALUES (?, ?, ?, 'membro', ?)
-        ''', (email, nome, criar_senha_hash(senha), datetime.now().isoformat()))
-        conn.commit()
+        supabase.table('usuarios').insert({
+            'email': email,
+            'nome': nome,
+            'senha_hash': senha_hash,
+            'role': 'membro',
+            'criado_em': datetime.now().isoformat()
+        }).execute()
         return True
     except:
         return False
-    finally:
-        conn.close()
 
 def listar_usuarios():
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("SELECT email, nome, role, criado_em FROM usuarios", conn)
-    conn.close()
-    return df
+    response = supabase.table('usuarios').select('*').execute()
+    return pd.DataFrame(response.data)
 
 def excluir_usuario(email):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM usuarios WHERE email = ?", (email,))
-    conn.commit()
-    conn.close()
+    supabase.table('usuarios').delete().eq('email', email).execute()
 
-# ===== FUNÇÃO QUE FALTAVA =====
+def salvar_analise(simbolo, tipo, resultado, confianca, tendencia, usuario):
+    supabase.table('historico_analises').insert({
+        'data': datetime.now().isoformat(),
+        'simbolo': simbolo,
+        'tipo': tipo,
+        'resultado': resultado,
+        'confianca': confianca,
+        'tendencia': tendencia,
+        'usuario': usuario
+    }).execute()
+
 def carregar_historico():
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("SELECT * FROM historico_analises ORDER BY id DESC", conn)
-    conn.close()
-    return df
+    response = supabase.table('historico_analises').select('*').order('id', desc=True).execute()
+    return pd.DataFrame(response.data)
 
 # ===== EXCHANGE =====
 def get_exchange():
@@ -230,34 +165,22 @@ def get_mvrv_zscore(simbolo):
 # ===== PÁGINA =====
 st.set_page_config(page_title="Mariana Bot - Dashboard", page_icon="🚀", layout="wide", initial_sidebar_state="expanded")
 
-init_db()
-
-# ===== LOGIN / CADASTRO =====
+# ===== LOGIN =====
 st.sidebar.title("🔐 Acesso")
-
 email_input = st.sidebar.text_input("Email")
 nome_input = st.sidebar.text_input("Nome")
 senha_input = st.sidebar.text_input("Senha", type="password")
-
-conn = sqlite3.connect(DB_PATH)
-cursor = conn.cursor()
-cursor.execute("SELECT * FROM usuarios WHERE email = ?", (email_input,))
-usuario_existente = cursor.fetchone()
-conn.close()
 
 if st.sidebar.button("🔑 Entrar"):
     if not email_input or not nome_input or not senha_input:
         st.sidebar.error("Preencha todos os campos!")
     else:
-        if usuario_existente:
-            if verificar_usuario(email_input, senha_input):
-                registrar_acao(email_input, nome_input, "LOGIN", "Entrou no dashboard", "Login")
-                st.session_state['logado'] = True
-                st.session_state['email'] = email_input
-                st.session_state['nome'] = nome_input
-                st.sidebar.success(f"✅ Logado como {nome_input}")
-            else:
-                st.sidebar.error("❌ Senha incorreta!")
+        if verificar_usuario(email_input, senha_input):
+            registrar_acao(email_input, nome_input, "LOGIN", "Entrou no dashboard", "Login")
+            st.session_state['logado'] = True
+            st.session_state['email'] = email_input
+            st.session_state['nome'] = nome_input
+            st.sidebar.success(f"✅ Logado como {nome_input}")
         else:
             if cadastrar_usuario(email_input, nome_input, senha_input):
                 registrar_acao(email_input, nome_input, "CADASTRO", "Criou conta", "Login")
@@ -266,7 +189,7 @@ if st.sidebar.button("🔑 Entrar"):
                 st.session_state['nome'] = nome_input
                 st.sidebar.success(f"✅ Conta criada! Logado como {nome_input}")
             else:
-                st.sidebar.error("❌ Erro ao criar conta!")
+                st.sidebar.error("❌ Usuário já existe ou erro ao criar conta!")
 
 # ===== MENU =====
 if 'logado' in st.session_state and st.session_state['logado']:
@@ -282,11 +205,11 @@ if 'logado' in st.session_state and st.session_state['logado']:
     if opcao == "📋 Registros":
         registrar_acao(email_user, nome_user, "NAVEGAÇÃO", "Acessou a seção Registros", "Registros")
         st.header("📋 Registros (Quem entrou e ONDE foi)")
-        df_registros = carregar_registros()
-        if df_registros.empty:
+        df = carregar_registros()
+        if df.empty:
             st.info("Nenhum registro encontrado.")
         else:
-            st.dataframe(df_registros, use_container_width=True)
+            st.dataframe(df, use_container_width=True)
             if st.sidebar.text_input("Senha Admin", type="password") == ADMIN_SENHA:
                 if st.button("🗑️ Apagar Todos os Registros"):
                     apagar_registros()
@@ -495,17 +418,8 @@ if 'logado' in st.session_state and st.session_state['logado']:
             st.image(uploaded_file, caption="Imagem enviada", use_container_width=True)
             if st.button("🔍 Analisar Imagem"):
                 st.info("🧠 Processando análise...")
-                nome_arquivo = uploaded_file.name.upper()
-                simbolo_candidato = ""
-                for token in nome_arquivo.replace(".PNG", "").replace(".JPG", "").replace(".JPEG", "").split():
-                    if token.isalpha() and len(token) >= 2:
-                        simbolo_candidato = token
-                        break
-                if not simbolo_candidato:
-                    simbolo_candidato = "BTC"
-                st.info(f"🤖 Analisando {simbolo_candidato} (1h)...")
                 st.success("Imagem recebida e analisada.")
-                salvar_analise(simbolo_candidato, "Imagem", "Imagem analisada", 50, "NEUTRO", email_user)
+                salvar_analise("IMAGEM", "Imagem", "Imagem analisada", 50, "NEUTRO", email_user)
     
     if opcao == "👥 Usuários (Admin)":
         registrar_acao(email_user, nome_user, "NAVEGAÇÃO", "Acessou a seção Admin", "Usuários")
