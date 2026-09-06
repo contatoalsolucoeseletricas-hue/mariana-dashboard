@@ -4,6 +4,7 @@ pandas
 numpy
 requests
 sqlite3
+supabase
 plotly
 python-dotenv
 pillow
