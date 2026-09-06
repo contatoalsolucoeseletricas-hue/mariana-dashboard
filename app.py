@@ -2,12 +2,9 @@
 # -*- coding: utf-8 -*-
 
 """
-MARIANA BOT - DASHBOARD (SUPABASE + HUGGING FACE - CHAVE SEGURA)
-- ✅ Login com senha própria
-- ✅ Registros salvos no Supabase (nunca somem)
-- ✅ Admin pode apagar registros
-- ✅ Chat interativo com Hugging Face (via variável de ambiente)
-- ✅ Análise completa com indicadores
+MARIANA BOT - DASHBOARD (SUPABASE + HUGGING FACE - CORRIGIDO)
+- ✅ Chat com IA funcionando
+- ✅ MVRV Z-Score funcionando
 """
 
 import streamlit as st
@@ -123,7 +120,7 @@ def carregar_historico():
     except:
         return pd.DataFrame()
 
-# ===== HUGGING FACE (CHAVE SEGURA - VIA VARIÁVEL DE AMBIENTE) =====
+# ===== HUGGING FACE (CORRIGIDO) =====
 HF_TOKEN = os.getenv('HF_TOKEN', '')
 
 def responder_hugging(prompt):
@@ -133,16 +130,12 @@ def responder_hugging(prompt):
             "Content-Type": "application/json"
         }
         payload = {
-            "model": "Qwen/Qwen2.5-7B-Instruct",
-            "messages": [
-                {"role": "system", "content": "Você é um assistente de trading especializado em criptomoedas. Responda de forma clara e útil."},
-                {"role": "user", "content": prompt}
-            ],
-            "max_tokens": 300
+            "inputs": prompt,
+            "parameters": {"max_new_tokens": 300, "temperature": 0.7, "return_full_text": False}
         }
-        req = requests.post("https://router.huggingface.co/v1/chat/completions", headers=headers, json=payload, timeout=30)
+        req = requests.post("https://api-inference.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct", headers=headers, json=payload, timeout=30)
         resultado = req.json()
-        return resultado['choices'][0]['message']['content']
+        return resultado[0]['generated_text']
     except Exception as e:
         return f"❌ Erro na IA: {e}"
 
@@ -167,6 +160,7 @@ def safe_float(valor, default=0.0):
     except:
         return default
 
+# ===== INDICADORES =====
 def get_fear_greed_index():
     try:
         return int(requests.get('https://api.alternative.me/fng/?limit=1', timeout=5).json()['data'][0]['value'])
@@ -200,10 +194,11 @@ def get_whale_alerts():
 def get_mvrv_zscore(simbolo):
     try:
         moeda_id = simbolo.split('/')[0].lower()
-        mapa = {'BTC': 'bitcoin', 'ETH': 'ethereum', 'SOL': 'solana', 'SUI': 'sui', 'BNB': 'binancecoin', 'NAORIS': 'naoris'}
+        mapa = {'BTC': 'bitcoin', 'ETH': 'ethereum', 'SOL': 'solana', 'SUI': 'sui', 'BNB': 'binancecoin', 'NAORIS': 'naoris', 'ZEC': 'zcash'}
         id_api = mapa.get(moeda_id.upper(), moeda_id)
+        headers = {'accept': 'application/json', 'user-agent': 'Mozilla/5.0'}
         url = f"https://api.coingecko.com/api/v3/coins/{id_api}"
-        response = requests.get(url, timeout=5).json()
+        response = requests.get(url, headers=headers, timeout=10).json()
         market_cap = response.get('market_data', {}).get('market_cap', {}).get('usd', 0)
         realized_cap = response.get('market_data', {}).get('fully_diluted_valuation', {}).get('usd', 0)
         if market_cap > 0 and realized_cap > 0:
@@ -469,34 +464,24 @@ if 'logado' in st.session_state and st.session_state['logado']:
         registrar_acao(email_user, nome_user, "NAVEGAÇÃO", "Acessou a seção Chat IA", "Chat com IA")
         st.header("💬 Chat com IA (Hugging Face)")
         
-        # Inicializar histórico do chat
         if 'mensagens' not in st.session_state:
             st.session_state['mensagens'] = []
         
-        # Exibir mensagens anteriores
         for mensagem in st.session_state['mensagens']:
             if mensagem['role'] == 'user':
                 st.chat_message("user").write(mensagem['content'])
             else:
                 st.chat_message("assistant").write(mensagem['content'])
         
-        # Input do usuário
         prompt = st.chat_input("Digite sua pergunta sobre cripto...")
         
         if prompt:
-            # Adicionar mensagem do usuário
             st.session_state['mensagens'].append({'role': 'user', 'content': prompt})
             st.chat_message("user").write(prompt)
-            
-            # Obter resposta da IA
             with st.spinner("🧠 Pensando..."):
                 resposta = responder_hugging(prompt)
-            
-            # Adicionar resposta da IA
             st.session_state['mensagens'].append({'role': 'assistant', 'content': resposta})
             st.chat_message("assistant").write(resposta)
-            
-            # Registrar no Supabase
             registrar_acao(email_user, nome_user, "PERGUNTA IA", prompt[:50], "Chat com IA")
     
     if opcao == "📸 Análise de Imagem":
